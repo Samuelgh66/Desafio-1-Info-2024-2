@@ -1,0 +1,106 @@
+#include <LiquidCrystal.h>
+
+// Inicialización del LCD
+LiquidCrystal lcd(12, 11, 5, 4, 3, 2);
+
+const int analogPin = A0;       // Pin de entrada analógica
+unsigned long Tiempo = 0;       // Tiempo anterior en milisegundos
+
+const int buttonPin = 7;        // Pin para el botón de inicio
+const int buttonPinOff = 6;     // Pin para el botón de parado
+bool isAcquiring = false;       // Estado de la adquisición
+unsigned int capacidad = 100;            // Capacidad inicial del arreglo
+unsigned int cantElementos = 0;  // Número de elementos actuales en la matriz
+int** matriz;                   // Inicialización de la matriz dinámica
+
+// Función para redimensionar la matriz
+void redimensionarMatriz(int**& matriz, unsigned int& capacidad) {
+    int nuevaCapacidad = capacidad + 100;  // Aumentar la capacidad en 100 filas
+    
+    // 1. Crear una nueva matriz con más filas
+    int** nuevaMatriz = new int*[nuevaCapacidad];
+    
+    // 2. Crear las columnas (siempre 2 columnas) y copiar datos de la matriz original
+    for (int i = 0; i < cantElementos; i++) {
+        nuevaMatriz[i] = new int[2];  // Crear dos columnas por cada fila
+        nuevaMatriz[i][0] = matriz[i][0];  // Copiar columna 1 (Tiempo)
+        nuevaMatriz[i][1] = matriz[i][1];  // Copiar columna 2 (Señal)
+    }
+
+    // 3. Liberar la matriz original
+    for (int i = 0; i < cantElementos; i++) {
+        delete[] matriz[i];
+    }
+    delete[] matriz;
+
+    // 4. Actualizar el puntero para que apunte a la nueva matriz
+    matriz = nuevaMatriz;
+    capacidad = nuevaCapacidad;  // Actualizar la capacidad
+}
+
+void setup() 
+{
+  lcd.begin(16, 2);  // LCD de 16 columnas y 2 filas
+  pinMode(buttonPin, INPUT_PULLUP);  // Configuración del botón de inicio
+  pinMode(buttonPinOff, INPUT_PULLUP); // Configuración del botón de parado
+  lcd.print("Signal Analysis");
+  Serial.begin(9600);
+
+  // Inicializar la matriz con capacidad inicial
+  matriz = new  int*[capacidad];
+  for (int i = 0; i < capacidad; i++) {
+      matriz[i] = new int[2];  // Crear dos columnas por fila
+  }
+}
+
+void loop() 
+{
+    // Leer el estado de los botones
+    if (digitalRead(buttonPin) == LOW) {
+        isAcquiring = true;  // Cambiar el estado de adquisición a verdadero
+    }
+    
+    if (digitalRead(buttonPinOff) == LOW) {
+        isAcquiring = false;  // Cambiar el estado de adquisición a falso
+        lcd.setCursor(0, 1);
+        lcd.print("Final         ");
+        
+        // Mostrar los datos almacenados en el monitor serial
+        for (int i = 0; i < cantElementos; i++) {
+            Serial.print("Fila ");
+            Serial.print(i);
+            Serial.print(": ");
+            Serial.print(matriz[i][0]);  // Imprimir valor de la primera columna
+            Serial.print(", ");
+            Serial.println(matriz[i][1]);  // Imprimir valor de la segunda columna
+        }
+    }
+    
+    // Si se está adquiriendo datos
+    if (isAcquiring == true) {
+        lcd.setCursor(0, 1);
+        lcd.print("Inicio        ");
+        
+        // Obtener el tiempo actual y la señal analógica
+        unsigned long int Tiempo = millis();  // Capturar el tiempo actual
+        int Senial = analogRead(analogPin);	  // Leer la señal de entrada analógica
+
+        // Si el arreglo está lleno, redimensionarlo
+        if (cantElementos == capacidad) {
+            redimensionarMatriz(matriz, capacidad);  // Redimensionar si es necesario
+        }
+
+        // Almacenar el tiempo y la señal en la matriz
+        matriz[cantElementos][0] = Tiempo;  // Almacenar el tiempo en la columna 1
+        matriz[cantElementos][1] = Senial;  // Almacenar la señal en la columna 2
+        cantElementos++;  // Incrementar el contador de elementos
+
+        // Mostrar los datos en el monitor serial
+        Serial.print("Tiempo: ");
+        Serial.print(Tiempo);
+        Serial.print(" - Señal: ");
+        Serial.println(Senial);
+        Serial.print(" - Elem: ");
+        Serial.println(cantElementos);
+    }
+}
