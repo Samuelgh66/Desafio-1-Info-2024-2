@@ -1,0 +1,182 @@
+#include <LiquidCrystal.h>
+
+LiquidCrystal lcd(12, 11, 5, 4, 3, 2);
+const int pinAnalogico = A0; // Pin de entrada analógica
+const int pinBotonInicio = 7; // Pin para el botón de inicio
+const int pinBotonParo = 6; // Pin para el botón de paro
+bool adquiriendo = false; // Estado de la adquisición
+unsigned int capacidad = 100; // Capacidad inicial del arreglo
+unsigned int cantidadElementos = 0; // Número de elementos actuales en la matriz
+int** matriz; // Inicialización de la matriz dinámica
+float frecuencia = 0; // Frecuencia de la señal
+float amplitud = 0; // Amplitud de la señal
+
+// Función para resetear la matriz
+void ResetearMatriz(int**& matriz, unsigned int capacidad) {
+    for (int i = 0; i < capacidad; i++) {
+        delete[] matriz[i];  // Liberar la memoria de cada fila
+    }
+    delete[] matriz;  // Liberar la memoria de la matriz
+    // Crear una nueva matriz con la misma capacidad
+    matriz = new int*[capacidad];
+    for (int i = 0; i < capacidad; i++) {
+        matriz[i] = new int[2];  // Dos columnas: tiempo y señal
+    }
+    cantidadElementos = 0;  // Reiniciar el contador de elementos
+}
+
+// Función para verificar si una señal es cuadrada
+bool esOndaCuadrada(int* datos, int tamanio) {
+    for (int i = 1; i < tamanio - 1; i++) {
+        if (datos[i] != datos[i - 1] && datos[i] != datos[i + 1]) {
+            return false;
+        }
+    }
+    return true;
+}
+
+// Función para medir la amplitud y la frecuencia basadas en los datos almacenados
+void analizarSenal() {
+    int valorMaximo = 0;
+    int valorMinimo = 1023;
+    int crucesPorCero = 0;
+    int valorMedio = 0;
+    unsigned long tiempoInicial = matriz[0][0];
+    unsigned long tiempoFinal = matriz[cantidadElementos - 1][0];
+
+    // Encontrar el valor máximo y mínimo
+    for (int i = 0; i < cantidadElementos; i++) {
+        int senial = matriz[i][1];
+        if (senial > valorMaximo) valorMaximo = senial;
+        if (senial < valorMinimo) valorMinimo = senial;
+    }
+
+    // Calcular el valor medio
+    valorMedio = (valorMaximo + valorMinimo) / 2;
+
+    // Contar los cruces por el valor medio
+    for (int i = 1; i < cantidadElementos; i++) {
+        if ((matriz[i-1][1] < valorMedio && matriz[i][1] > valorMedio) ||
+            (matriz[i-1][1] > valorMedio && matriz[i][1] < valorMedio)) {
+            crucesPorCero++;
+        }
+    }
+
+    // Calcular la frecuencia en base a los cruces
+    unsigned long duracion = tiempoFinal - tiempoInicial;
+    if (duracion > 0 && crucesPorCero > 1) {
+        frecuencia = (crucesPorCero / 2.0) * (1000.0 / duracion); // Frecuencia en Hz
+    } else {
+        frecuencia = 0;
+    }
+
+    // Calcular la amplitud pico a pico
+    amplitud = (valorMaximo - valorMinimo) * (5.0 / 1023.0); // Amplitud en V
+
+    // Mostrar en el monitor serial
+    Serial.print("Frecuencia: ");
+    Serial.print(frecuencia);
+    Serial.println(" Hz");
+    Serial.print("Amplitud: ");
+    Serial.print(amplitud);
+    Serial.println(" V");
+}
+
+// Función para detectar el tipo de onda
+void detectarTipoDeOnda() {
+    int* datos = new int[cantidadElementos];
+    for (int i = 0; i < cantidadElementos; i++) {
+        datos[i] = matriz[i][1];
+    }
+
+    if (esOndaCuadrada(datos, cantidadElementos)) {
+        Serial.println("Tipo de onda: Cuadrada");
+    } else {
+        Serial.println("Tipo de onda: No es Cuadrada");
+    }
+
+    delete[] datos; // Liberar memoria del arreglo dinámico
+}
+
+void setup() {
+    lcd.begin(16, 2); // Inicializar el LCD con 16 columnas y 2 filas
+    pinMode(pinBotonInicio, INPUT_PULLUP);  // Configuración del botón de inicio
+    pinMode(pinBotonParo, INPUT_PULLUP);    // Configuración del botón de paro
+    lcd.print("Analisis de Senal");  // Mostrar mensaje inicial en el LCD
+    Serial.begin(9600);  // Inicializar la comunicación serial
+
+    // Inicializar la matriz con capacidad inicial
+    matriz = new int*[capacidad];
+    for (int i = 0; i < capacidad; i++) {
+        matriz[i] = new int[2];  // Crear dos columnas por fila
+    }
+}
+
+void loop() {
+    // Leer el estado de los botones
+    if (digitalRead(pinBotonInicio) == LOW) {
+        adquiriendo = true;  // Cambiar el estado de adquisición a verdadero
+        lcd.clear();  // Limpiar el LCD
+        frecuencia = 0;  // Reiniciar frecuencia al comenzar nueva adquisición
+        amplitud = 0;    // Reiniciar amplitud al comenzar nueva adquisición
+        cantidadElementos = 0; // Reiniciar el contador de elementos
+    }
+
+    if (digitalRead(pinBotonParo) == LOW) {
+        adquiriendo = false;  // Cambiar el estado de adquisición a falso
+        lcd.clear();  // Limpiar el LCD
+        lcd.setCursor(0, 0);
+        lcd.print("Analisis");  // Mostrar mensaje de análisis detenido
+        lcd.setCursor(0, 1);
+        lcd.print("Detenido");
+        // Analizar la señal cuando la adquisición se detiene
+        analizarSenal();
+        detectarTipoDeOnda();  // Llamar a la detección de tipo de onda
+
+        // Mostrar frecuencia y amplitud en el LCD
+        lcd.setCursor(0, 0);
+        lcd.print("Freq: ");
+        lcd.print(frecuencia);
+        lcd.print(" Hz");
+        lcd.setCursor(0, 1);
+        lcd.print("Amp: ");
+        lcd.print(amplitud);
+        lcd.print(" V");
+    }
+
+    // Si se está adquiriendo datos
+    if (adquiriendo == true) {
+        // Obtener el tiempo actual y la señal analógica
+        unsigned long int tiempo = millis();  // Capturar el tiempo actual
+        int senial = analogRead(pinAnalogico);  // Leer la señal de entrada analógica
+
+        // Si el arreglo está lleno, procesar los datos y resetear la matriz
+        if (cantidadElementos == capacidad) {
+            // Analizar la señal cuando la matriz esté llena
+            analizarSenal();
+            detectarTipoDeOnda();  // Llamar a la detección de tipo de onda
+
+            // Mostrar la frecuencia y amplitud actuales en el LCD
+            lcd.clear();
+            lcd.setCursor(0, 0);
+            lcd.print("Freq: ");
+            lcd.print(frecuencia);
+            lcd.print(" Hz");
+            lcd.setCursor(0, 1);
+            lcd.print("Amp: ");
+            lcd.print(amplitud);
+            lcd.print(" V");
+
+            // Resetear la matriz para continuar adquiriendo datos
+            ResetearMatriz(matriz, capacidad);
+        }
+
+        // Almacenar el tiempo y la señal en la matriz
+        matriz[cantidadElementos][0] = tiempo;  // Almacenar el tiempo en la columna 1
+        matriz[cantidadElementos][1] = senial;  // Almacenar la señal en la columna 2
+        cantidadElementos++;  // Incrementar el contador de elementos
+
+        // Mostrar los datos en el monitor serial
+        Serial.println(senial);
+    }
+}
